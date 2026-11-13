@@ -1,0 +1,218 @@
+// ЗАГЛУШКИ: данные и ответы в формате контракта v2.
+// Включаются флагом CONFIG.USE_MOCK в js/config.js.
+// Меняешь данные здесь — меняется всё, что видит фронт.
+(function () {
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString().replace(/\.\d+Z$/, 'Z');
+
+  // ---------- Buoy ----------
+  const BUOYS = [
+    { buoy_id: 'b-001', name: 'Буй №1', geo: { lat: 43.05, lon: 47.65 } },
+    { buoy_id: 'b-002', name: 'Буй №2', geo: { lat: 43.38, lon: 47.74 } },
+    { buoy_id: 'b-003', name: 'Буй №3', geo: { lat: 43.73, lon: 47.84 } },
+    { buoy_id: 'b-004', name: 'Буй №4', geo: { lat: 44.03, lon: 47.92 } },
+    { buoy_id: 'b-005', name: 'Буй №5', geo: { lat: 44.43, lon: 47.65 } },
+  ];
+
+  // ---------- SoundEvent ----------
+  const cls = (label, confidence, second) => ({
+    label,
+    confidence,
+    candidates: [
+      { label, confidence },
+      { label: second, confidence: +(1 - confidence).toFixed(2) },
+    ],
+  });
+  const snd = (id, buoy_id, min, label, conf, second) => ({
+    event_id: id,
+    buoy_id,
+    source: 'buoy',
+    timestamp: ago(min),
+    classification: cls(label, conf, second),
+    audio_url: '/audio/' + id + '.wav',
+  });
+  const SOUND_EVENTS = [
+    snd('evt-0001', 'b-001', 4, 'gunshot', 0.91, 'anomaly'),
+    snd('evt-0002', 'b-003', 17, 'boat', 0.88, 'anomaly'),
+    snd('evt-0003', 'b-002', 42, 'seal', 0.94, 'anomaly'),
+    snd('evt-0004', 'b-005', 75, 'anomaly', 0.61, 'boat'),
+    snd('evt-0005', 'b-004', 130, 'seal', 0.83, 'boat'),
+    snd('evt-0006', 'b-001', 260, 'boat', 0.79, 'gunshot'),
+    snd('evt-0007', 'b-003', 410, 'seal', 0.9, 'anomaly'),
+    snd('evt-0008', 'b-002', 700, 'gunshot', 0.72, 'boat'),
+  ];
+
+  // ---------- SalinityMeasurement (по возрастанию времени, шаг 30 мин) ----------
+  const SALINITY = [];
+  BUOYS.forEach((b, bi) => {
+    for (let i = 47; i >= 0; i--) {
+      let s = 12.5 + Math.sin((i + bi * 5) / 6) * 0.4;
+      if (b.buoy_id === 'b-003' && i < 4) s -= 2.6; // сброс у буя №3
+      SALINITY.push({
+        measurement_id: 'sal-' + b.buoy_id.slice(2) + '-' + String(47 - i).padStart(2, '0'),
+        buoy_id: b.buoy_id,
+        timestamp: ago(i * 30),
+        salinity: +s.toFixed(2),
+      });
+    }
+  });
+
+  // ---------- WaterEvent (неприменимые поля — null) ----------
+  const WATER_EVENTS = [
+    {
+      event_id: 'wtr-0001',
+      type: 'illegal_discharge',
+      geo: { lat: 43.73, lon: 47.84 },
+      timestamp: ago(25),
+      details: { salinity: 9.9, salinity_delta: -2.6, level_delta_m: null, confidence: null },
+      source: { buoy_id: 'b-003', image_id: null },
+    },
+    {
+      event_id: 'wtr-0002',
+      type: 'illegal_discharge',
+      geo: { lat: 43.7, lon: 47.95 },
+      timestamp: ago(190),
+      details: { salinity: null, salinity_delta: null, level_delta_m: null, confidence: 0.91 },
+      source: { buoy_id: null, image_id: 'img-0001' },
+    },
+    {
+      event_id: 'wtr-0003',
+      type: 'level_anomaly',
+      geo: { lat: 44.35, lon: 47.7 },
+      timestamp: ago(520),
+      details: { salinity: null, salinity_delta: null, level_delta_m: 0.4, confidence: 0.84 },
+      source: { buoy_id: null, image_id: 'img-0002' },
+    },
+  ];
+
+  // ---------- Статика-заглушка: короткий сигнал и картинка ----------
+  let beepUrl = null;
+  function beep() {
+    if (beepUrl) return beepUrl;
+    const rate = 8000, n = rate / 2;
+    const dv = new DataView(new ArrayBuffer(44 + n * 2));
+    const str = (o, s) => [...s].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    str(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.sin((i / rate) * 2 * Math.PI * 440) * 9000, true);
+    beepUrl = URL.createObjectURL(new Blob([dv], { type: 'audio/wav' }));
+    return beepUrl;
+  }
+  const picture = (id) =>
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">' +
+        '<rect width="320" height="200" fill="#1d4e63"/>' +
+        '<text x="160" y="96" fill="#fff" font-family="sans-serif" font-size="16" text-anchor="middle">Снимок-заглушка</text>' +
+        '<text x="160" y="120" fill="#cfe3ea" font-family="sans-serif" font-size="13" text-anchor="middle">' + id + '</text></svg>'
+    );
+
+  // ---------- Ответы API ----------
+  const ok = (data) => new Promise((res) => setTimeout(() => res(JSON.parse(JSON.stringify(data))), 150));
+  const notFound = () => Promise.reject(new Error('not_found'));
+  const page = (list, p, defLimit) => {
+    const offset = +p.offset || 0;
+    return list.slice(offset, offset + (+p.limit || defLimit));
+  };
+  const inRange = (p) => (x) => (!p.from || x.timestamp >= p.from) && (!p.to || x.timestamp <= p.to);
+  let userSeq = 0;
+
+  window.MockApi = {
+    getBuoys: () => ok({ buoys: BUOYS }),
+    getBuoy: (id) => {
+      const b = BUOYS.find((x) => x.buoy_id === id);
+      return b ? ok(b) : notFound();
+    },
+    getEvents: (p = {}) => {
+      const list = SOUND_EVENTS.filter(inRange(p)).filter(
+        (e) => (!p.buoy_id || e.buoy_id === p.buoy_id) && (!p.label || e.classification.label === p.label)
+      );
+      return ok({ total: list.length, events: page(list, p, 50) });
+    },
+    getSalinity: (p = {}) => {
+      const list = SALINITY.filter(inRange(p)).filter((m) => !p.buoy_id || m.buoy_id === p.buoy_id);
+      return ok({ measurements: list.slice(0, +p.limit || 100) });
+    },
+    getWaterEvents: (p = {}) => {
+      const list = WATER_EVENTS.filter(inRange(p)).filter((e) => !p.type || e.type === p.type);
+      return ok({ total: list.length, events: page(list, p, 50) });
+    },
+    classifyUpload: (file, buoyId) => {
+      const id = 'evt-user-' + ++userSeq;
+      const classification = cls('boat', 0.87, 'anomaly'); // ответ-заглушка
+      const res = { event_id: id, buoy_id: buoyId || null, classification, audio_url: '/audio/' + id + '.wav' };
+      SOUND_EVENTS.unshift({ ...res, source: 'user', timestamp: ago(0) });
+      return ok(res);
+    },
+    getForecast: (p = {}) => {
+      const days = +p.days || 7;
+      const level = (s) => (s >= 0.5 ? 'high' : s >= 0.25 ? 'medium' : 'low');
+      const forecasts = BUOYS.filter((b) => !p.buoy_id || b.buoy_id === p.buoy_id).map((b, bi) => {
+        const threats = [0, 4, 1, 0, 3][bi % 5];
+        return {
+          buoy_id: b.buoy_id,
+          seal_events_7d: [0, 2, 1, 0, 3][bi % 5],
+          threat_events_7d: threats,
+          days: Array.from({ length: days }, (_, i) => {
+            const prob = +(0.35 + 0.08 * bi + 0.05 * Math.sin(i + bi)).toFixed(2);
+            const score = +((prob * (1 + Math.min(threats, 5) / 5)) / 2).toFixed(2);
+            return {
+              date: new Date(Date.now() + i * 86400000).toISOString().slice(0, 10),
+              seal_probability: prob, risk_score: score, risk_level: level(score),
+              air_temp_c: 8 + i, wind_ms: 4 + (i % 3),
+            };
+          }),
+        };
+      });
+      return ok({ generated_at: ago(0), weather_source: 'climatology', training_data: 'synthetic', forecasts });
+    },
+    // Аналитика считается на бэкенде; здесь — упрощённые ответы, чтобы фронт открывался без него
+    getBuoyStatus: () => ok({ buoys: BUOYS.map((b, i) => {
+      const own = SOUND_EVENTS.filter((e) => e.buoy_id === b.buoy_id).map((e) => e.classification.label);
+      const crit = own.some((l) => l === 'boat' || l === 'gunshot') || WATER_EVENTS.some((w) => w.source.buoy_id === b.buoy_id);
+      const status = crit ? 'critical' : own.includes('anomaly') ? 'anomaly' : 'normal';
+      return { buoy_id: b.buoy_id, name: b.name, geo: b.geo, listen_radius_km: 25, status, online: true,
+        reason: status === 'normal' ? 'за сутки без происшествий' : 'заглушка', last_signal: ago(3), last_label: own[0] || null,
+        salinity: 12.5, water_temp_c: 11.2 - 0.25 * i, level_m: -28.9, telemetry_at: ago(3) };
+    }) }),
+    getNeighbors: (kind, id) => ok({ event_id: id, verdict: 'isolated', message: 'В режиме заглушек соседи не считаются', neighbors: [] }),
+    getEvent: (id) => { const e = SOUND_EVENTS.find((x) => x.event_id === id); return e ? ok(e) : notFound(); },
+    getWaterEvent: (id) => { const e = WATER_EVENTS.find((x) => x.event_id === id); return e ? ok(e) : notFound(); },
+    getContext: (kind, id, minutes) => ok({ event_id: id, kind, window_min: minutes, total: 0, counts: {}, buoys: [],
+      items: [{ kind, event_id: id, label: 'boat', confidence: 0.9, buoy_id: 'b-001', delta_sec: 0, distance_km: 0, is_origin: true }] }),
+    getCarcasses: () => ok({ total: 0, carcasses: [] }),
+    postCarcass: () => Promise.reject(new Error('в режиме заглушек недоступно')),
+    getInvestigation: () => Promise.reject(new Error('в режиме заглушек недоступно')),
+    getLabel: () => ok({}),
+    putLabel: () => Promise.reject(new Error('в режиме заглушек недоступно')),
+    getLabels: () => ok({ total: 0, model_correct: 0, field_accuracy: null, items: [] }),
+    labelsExportUrl: () => '#',
+    getEvidence: () => Promise.reject(new Error('нет в заглушках')),
+    getSeals: () => ok({ generated_at: ago(0), window_h: 24, total_detections: 3, estimate_min: 1, method: 'заглушка',
+      buoys: [{ buoy_id: 'b-002', detections: 2, last_seen: ago(42) }, { buoy_id: 'b-004', detections: 1, last_seen: ago(130) }], groups: [] }),
+    getModelInfo: () => ok({
+      sound: { accuracy: 0.974, precision_macro: 0.978, recall_macro: 0.975, f1_macro: 0.975, n_samples: 38,
+               cv_f1_mean: 0.958, cv_f1_std: 0.042, anomaly_threshold: 0.6, n_classes: 5 },
+      forecast: { data: 'synthetic', samples: 30000, roc_auc: 0.749, brier: 0.157, accuracy: 0.774 },
+      library_size: 150,
+    }),
+    // Сценарий в заглушках: те же шаги, что в mock-backend/scenarios.py
+    runScenario: () => {
+      const steps = [[0, 'b-001', 'boat', 0.86], [6, 'b-002', 'boat', 0.81], [12, 'b-002', 'gunshot', 0.93], [17, 'b-003', 'gunshot', 0.88]];
+      steps.forEach(([sec, buoy_id, label, conf]) => setTimeout(() => {
+        const id = 'evt-demo-' + ++userSeq;
+        SOUND_EVENTS.unshift(snd(id, buoy_id, 0, label, conf, 'anomaly'));
+      }, sec * 1000));
+      setTimeout(() => WATER_EVENTS.unshift({
+        event_id: 'wtr-demo-' + ++userSeq, type: 'illegal_discharge', geo: { lat: 43.73, lon: 47.84 }, timestamp: ago(0),
+        details: { salinity: 9.6, salinity_delta: -2.9, level_delta_m: null, confidence: 0.99 },
+        source: { buoy_id: 'b-003', image_id: null },
+      }), 23000);
+      return ok({ started: true, duration_sec: 23, message: 'Сценарий запущен' });
+    },
+    audioUrl: () => beep(),
+    imageUrl: (imageId) => picture(imageId),
+  };
+})();
