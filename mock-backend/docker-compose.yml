@@ -1,0 +1,19 @@
+# Нужен плагин compose (sudo apt install docker-compose-v2). Без него — bash docker.sh
+#   docker compose up --build                   # эмулятор буя на :8000 → бэкенд localhost:8001
+#   docker compose --profile mock up --build    # + мок бэкенда на :8001
+services:
+  emulator:
+    build: .
+    network_mode: host
+    environment:
+      BACKEND_URL: "http://localhost:8001"
+    volumes:
+      - ./sounds:/app/sounds
+      - ./sat_library:/app/sat_library
+    command: ["uvicorn", "emulator:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  mock-backend:
+    build: .
+    profiles: ["mock"]
+    network_mode: host
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
